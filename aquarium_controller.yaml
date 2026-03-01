@@ -1,0 +1,1205 @@
+substitutions:
+  name: "aquarium-controler"
+  friendly_name: "Akvárium Kontroler"
+  wifi_ssid: "elernetik"
+  wifi_password: "64030625346403062534"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  platformio_options:
+    build_flags:
+      - -DLV_USE_LIST=1
+      - -DLV_USE_BTN=1
+      - -DLV_USE_LABEL=1
+      - -DBOARD_HAS_PSRAM
+    board_build.arduino.memory_type: qio_opi
+    board_build.flash_mode: dio
+    board_upload.maximum_ram_size: 524288
+  on_boot:
+    - priority: 600
+      then:
+        - logger.log: "Initializing Hardware (CH422G)..."
+        # CH422G Init for Backlight/Reset (Address 0x24)
+        - lambda: |-
+            uint8_t cmd_enable[] = {0x01, 0x01};
+            id(bus_a).write(0x24, cmd_enable, 2);
+        - delay: 10ms
+        - lambda: |-
+            uint8_t cmd_high[] = {0x00, 0xFF};
+            id(bus_a).write(0x24, cmd_high, 2);
+        - logger.log: "CH422G Initialized"
+        
+        # Apply conditional styles for LVGL widgets using lambda
+        - lambda: |-
+            // Apply checked style to heater button
+            lv_obj_add_style(id(btn_heater), id(style_device_transparent_checked), LV_STATE_CHECKED);
+            // Apply checked style to light button
+            lv_obj_add_style(id(btn_light), id(style_device_transparent_checked), LV_STATE_CHECKED);
+            // Apply checked style to feeder button
+            lv_obj_add_style(id(btn_feeder), id(style_device_transparent_checked), LV_STATE_CHECKED);
+            
+            // Initial WiFi Icon State
+            lv_obj_add_style(id(icon_wifi), id(style_icon_green), LV_STATE_CHECKED); // Green when checked (connected)
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          if (id(wifi_component).is_connected()) {
+             lv_obj_add_state(id(icon_wifi), LV_STATE_CHECKED);
+          } else {
+             lv_obj_clear_state(id(icon_wifi), LV_STATE_CHECKED);
+          }
+
+  - interval: 1s
+    then:
+      - lambda: |-
+          // 1. Update Sidebar Temperature Display
+          char buffer[16];
+          sprintf(buffer, "%.1f °C", id(current_temp));
+          lv_label_set_text(id(lbl_temp_val), buffer);
+
+          // 2. Color Logic (Red if out of bounds)
+          if (id(current_temp) < id(temp_min_alert) || id(current_temp) > id(temp_max_alert)) {
+            lv_obj_set_style_text_color(id(lbl_temp_val), lv_color_hex(0xFF0000), 0); // Red
+            lv_obj_set_style_text_color(id(lbl_temp_icon), lv_color_hex(0xFF0000), 0); // Red
+          } else {
+            lv_obj_set_style_text_color(id(lbl_temp_val), lv_color_hex(0x29B6F6), 0); // Blue
+            lv_obj_set_style_text_color(id(lbl_temp_icon), lv_color_hex(0x29B6F6), 0); // Blue
+          }
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      COMPILER_OPTIMIZATION_SIZE: y
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESPTOOLPY_FLASHSIZE_8MB: "y"
+      CONFIG_FREERTOS_HZ: "1000"
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160: y
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240: n
+      CONFIG_ESPTOOLPY_FLASHMODE_QIO: y
+      CONFIG_ESPTOOLPY_FLASHFREQ_80M: y
+      CONFIG_ESPTOOLPY_FLASHFREQ_120M: n
+      CONFIG_SPIRAM_MODE_OCT: y
+      CONFIG_IDF_EXPERIMENTAL_FEATURES: y
+      CONFIG_SPIRAM_SPEED_80M: y
+      CONFIG_SPIRAM_SPEED_120M: n
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: y
+      CONFIG_SPIRAM_RODATA: y
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: y
+      CONFIG_COMPILER_OPTIMIZATION_PERF: y
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  baud_rate: 0
+
+api:
+
+web_server:
+  port: 80
+
+captive_portal:
+
+ota:
+  - platform: esphome
+
+globals:
+  - id: temp_min_alert
+    type: float
+    restore_value: yes
+    initial_value: '22.0'
+  - id: temp_max_alert
+    type: float
+    restore_value: yes
+    initial_value: '28.0'
+  - id: temp_target_day
+    type: float
+    restore_value: yes
+    initial_value: '25.0'
+  - id: temp_target_night
+    type: float
+    restore_value: yes
+    initial_value: '23.0'
+  - id: current_temp
+    type: float
+    restore_value: no
+    initial_value: '24.5' # Simulation
+
+font:
+  - file: "gfonts://Roboto"
+    id: my_font
+    size: 32
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ"
+  - file: "gfonts://Material Icons"
+    id: icon_font
+    size: 32
+    glyphs: "\U0000E037\U0000E047\U0000E63E\U0000E88A\U0000E1FF\U0000E916\U0000E88C\U0000E9E4\U0000E8B8\U0000E5C4\U0000E0F0" # Added E0F0 (Light Bulb)
+
+  - file: "gfonts://Material Icons"
+    id: big_icon_font
+    size: 60
+    glyphs: "\U0000E1FF\U0000E916\U0000E88C\U0000E9E4\U0000E8B8\U0000E0F0" # Added E0F0 (Light Bulb)
+  - file: "gfonts://Roboto"
+    id: status_font
+    size: 50
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~°áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ"
+
+  - file: "gfonts://Roboto"
+    id: medium_font
+    size: 28
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~°áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ"
+
+  - file: "gfonts://Roboto"
+    id: small_font
+    size: 20
+    glyphs: " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~°áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ"
+
+image:
+  - file: "aquarium_bg.png"
+    id: img_aquarium_bg
+    type: RGB565
+    resize: 640x426
+
+wifi:
+  id: wifi_component
+  ssid: ${wifi_ssid}
+  password: ${wifi_password}
+  ap:
+    ssid: "Aquarium-Fallback"
+
+i2c:
+  id: bus_a
+  sda: GPIO8
+  scl: GPIO9
+  scan: True
+  frequency: 400kHz
+
+touchscreen:
+  platform: gt911
+  id: my_touch
+  interrupt_pin: GPIO4
+  on_touch:
+    - lambda: |-
+        ESP_LOGD("Touch", "Touch detected at x=%d, y=%d", touch.x, touch.y);
+
+# --- Virtual Switches for Device Control ---
+switch:
+  - platform: template
+    id: switch_light
+    name: "Světlo"
+    optimistic: true
+    turn_on_action:
+      - lambda: lv_obj_add_state(id(btn_light), LV_STATE_CHECKED);
+      - lambda: lv_obj_add_flag(id(overlay_darkness), LV_OBJ_FLAG_HIDDEN); # Light ON = No Darkness
+    turn_off_action:
+      - lambda: lv_obj_clear_state(id(btn_light), LV_STATE_CHECKED);
+      - lambda: lv_obj_clear_flag(id(overlay_darkness), LV_OBJ_FLAG_HIDDEN); # Light OFF = Darkness
+
+  - platform: template
+    id: switch_heater
+    name: "Topítko"
+    optimistic: true
+    turn_on_action:
+      - lambda: lv_obj_add_state(id(btn_heater), LV_STATE_CHECKED);
+    turn_off_action:
+      - lambda: lv_obj_clear_state(id(btn_heater), LV_STATE_CHECKED);
+
+  - platform: template
+    id: switch_feeder
+    name: "Krmítko"
+    optimistic: true
+    turn_on_action:
+      - lambda: lv_obj_add_state(id(btn_feeder), LV_STATE_CHECKED);
+      - delay: 1s
+      - switch.turn_off: switch_feeder
+    turn_off_action:
+      - lambda: lv_obj_clear_state(id(btn_feeder), LV_STATE_CHECKED);
+
+display:
+  - platform: rpi_dpi_rgb
+    id: my_display
+    update_interval: never
+    auto_clear_enabled: false
+    color_order: RGB
+    pclk_frequency: 16MHz
+    dimensions:
+      width: 800
+      height: 480
+    de_pin:
+      number: 5
+    hsync_pin:
+      number: 46
+      ignore_strapping_warning: true
+    vsync_pin:
+      number: 3
+      ignore_strapping_warning: true
+    pclk_pin: 7
+    pclk_inverted: true
+    hsync_back_porch: 8
+    hsync_front_porch: 8
+    hsync_pulse_width: 4
+    vsync_back_porch: 16
+    vsync_front_porch: 16
+    vsync_pulse_width: 4
+    data_pins:
+      red:
+        - 1
+        - 2
+        - 42
+        - 41
+        - 40
+      blue:
+        - 14
+        - 38
+        - 18
+        - 17
+        - 10
+      green:
+        - 39
+        - 0
+        - 45
+        - 48
+        - 47
+        - 21
+
+# --- LVGL UI (Simplified) ---
+
+
+
+script:
+  - id: update_temp_settings_ui
+    mode: restart
+    then:
+      - lambda: |-
+          char buffer[16];
+          
+          // Min Alert
+          sprintf(buffer, "%.1f °C", id(temp_min_alert));
+          lv_label_set_text(id(lbl_min_val), buffer);
+          
+          // Max Alert
+          sprintf(buffer, "%.1f °C", id(temp_max_alert));
+          lv_label_set_text(id(lbl_max_val), buffer);
+          
+          // Target Day
+          sprintf(buffer, "%.1f °C", id(temp_target_day));
+          lv_label_set_text(id(lbl_target_day_val), buffer);
+          
+          // Target Night
+          sprintf(buffer, "%.1f °C", id(temp_target_night));
+          lv_label_set_text(id(lbl_target_night_val), buffer);
+
+lvgl:
+  log_level: INFO
+  id: my_lvgl
+  displays:
+    - my_display
+  touchscreens:
+    - my_touch
+
+  style_definitions:
+    # Hlavní pozadí
+    - id: style_bg_main
+      bg_color: 0x1a1a1a
+      pad_all: 0
+      border_width: 0
+
+    # Horní lišta
+    - id: style_top_bar
+      bg_color: 0x223344
+      pad_all: 5
+      border_width: 0
+      border_side: bottom
+      border_color: 0x333333
+
+    # Left Main Panel (Aquarium View Container)
+    - id: style_left_panel
+      bg_color: 0x223344
+      border_width: 2
+      border_color: 0x444444
+      radius: 5
+      pad_all: 0
+
+    # Right Sidebar
+    - id: style_right_panel
+      bg_color: 0x1a1a1a
+      pad_all: 0
+
+    # Placeholders
+    - id: style_placeholder_text
+      text_color: 0xAAAAAA
+      text_font: medium_font
+
+    # Icon Styles
+    - id: style_icon_gray
+      text_color: 0x888888
+      text_font: icon_font
+
+    - id: style_icon_green
+      text_color: 0x00FF00
+      text_font: icon_font
+      
+    - id: style_icon_blue
+      text_color: 0x2196F3
+      text_font: icon_font
+
+    # --- Styles for Aquarium Schematic (Now Transparent Overlay) ---
+    - id: style_device_transparent
+      bg_opa: 0 # Transparent
+      border_width: 1
+      border_color: 0x555555
+      border_opa: 30% # Faint border to show clickable area
+      radius: 5
+
+    - id: style_device_transparent_checked
+      bg_opa: 20% # Slight tint when active
+      bg_color: 0xFFFF00
+      border_width: 2
+      border_color: 0xFFFF00
+      border_opa: 100%
+      radius: 5
+      shadow_width: 10
+      shadow_color: 0xFFFF00
+
+  pages:
+    - id: main_page
+      widgets:
+        - obj:
+            id: main_container
+            width: 800
+            height: 480
+            layout:
+              type: flex
+              flex_flow: column
+            styles: style_bg_main
+            widgets:
+              # 1. HORNÍ LIŠTA (Top Bar)
+              - obj:
+                  width: 100%
+                  height: 50
+                  styles: style_top_bar
+                  scrollbar_mode: "OFF"
+                  # Fixed layout - no flex
+                  widgets:
+                    - label:
+                        text: "Akvárium Kontroler"
+                        text_font: medium_font
+                        text_color: 0x29B6F6 # Light Blue
+                        x: 10
+                        y: 8
+                    
+                    # WiFi Icon
+                    - label:
+                        id: icon_wifi
+                        text: "\U0000E63E" # WiFi Icon
+                        styles: style_icon_gray
+                        x: 700
+                        y: 8
+
+                    # Home Assistant Icon (Clickable)
+                    - button:
+                        id: btn_ha_action
+                        width: 40
+                        height: 40
+                        x: 750
+                        y: 5
+                        bg_opa: 0 # Transparent
+                        border_width: 0 # No border
+                        shadow_width: 0 # No shadow
+                        on_click:
+                          - lambda: |-
+                              lv_obj_clear_flag(id(ha_dashboard_overlay), LV_OBJ_FLAG_HIDDEN);
+                              lv_obj_move_foreground(id(ha_dashboard_overlay));
+                        widgets:
+                          - label:
+                              id: icon_home
+                              text: "\U0000E88A" # Home Icon
+                              styles: style_icon_blue # Always blue
+                              align: center
+                              clickable: false
+
+                    # New Settings Button (in Top Bar)
+                    - button:
+                        id: btn_settings_top
+                        width: 40
+                        height: 40
+                        x: 650 # Placed before WiFi icon
+                        y: 5
+                        bg_opa: 0 # Transparent
+                        border_width: 0
+                        shadow_width: 0
+                        on_click:
+                          - lambda: |-
+                              // Open general settings overlay (currently placeholder or reused)
+                              // For now, let's say it opens the same overlay as the old button or a new one
+                              // Based on user request, the OLD button opened 'overlay_settings'.
+                              // But the OLD button is now 'Light', so it should open 'overlay_settings' (which will be Light settings).
+                              // The USER said: "Nastaveni nově udelame v horni liště".
+                              // So THIS button should open a NEW settings overlay or the general settings if distinct.
+                              // Assuming for now it's a placeholder for general settings as requested.
+                              ESP_LOGD("Settings", "Top bar settings clicked");
+                        widgets:
+                          - label:
+                              text: "\U0000E8B8" # Settings Icon
+                              styles: style_icon_gray
+                              align: center
+                              clickable: false
+
+              # CONTENT AREA (Split Left/Right)
+              - obj:
+                  width: 100%
+                  flex_grow: 1
+                  layout:
+                    type: flex
+                    flex_flow: row
+                    pad_column: 10 # Spacing between left/right panel
+                  bg_opa: 0% # Transparent
+                  border_width: 0
+                  # clickable: false removed to ensure touch propagation
+                  widgets:
+                    # 2. LEVÁ HLAVNÍ ČÁST (Schematic Aquarium View)
+                    - obj:
+                        flex_grow: 1
+                        height: 100%
+                        styles: style_left_panel
+                        pad_all: 5 # Padding inside left panel
+                        # No layout type for absolute positioning
+                        widgets:
+                          # --- IMAGE BACKGROUND ---
+                          - image:
+                              src: img_aquarium_bg
+                              align: center
+                              width: 100%
+                              height: 100%
+                          
+                          # --- LIGHT OVERLAY (Darkness) ---
+                          # Change x, y, width, height to match your aquarium glass exactly
+                          - obj:
+                              id: overlay_darkness
+                              x: 50 # EDITABLE: X coordinate (start of darkness)
+                              y: 50 # EDITABLE: Y coordinate (start of darkness)
+                              width: 540 # EDITABLE: Width of the dark area
+                              height: 326 # EDITABLE: Height of the dark area
+                              bg_color: 0x000000
+                              bg_opa: 60%
+                              border_width: 0
+                              hidden: true # Initially hidden (Light is ON)
+                              clickable: false # Important: Let touches pass through
+                              widgets: []
+                          
+                          # --- OVERLAY CONTROLS ---
+                          # Heater (Topné těleso)
+                          - button:
+                              id: btn_heater
+                              x: 520
+                              y: 180
+                              width: 40
+                              height: 100
+                              bg_opa: 0 # Transparent
+                              styles:
+                                - style_device_transparent
+                              on_click:
+                                - switch.toggle: switch_heater
+                              widgets:
+                                - label:
+                                    text: "TOP"
+                                    align: center
+                                    text_font: small_font
+                                    text_color: 0xFFFFFF
+                                    clickable: false
+                          
+                          # Light (Osvětlení)
+                          - button:
+                              id: btn_light
+                              x: 380
+                              y: 65
+                              width: 200
+                              height: 40
+                              bg_opa: 0 # Transparent
+                              styles:
+                                - style_device_transparent
+                              on_click:
+                                - switch.toggle: switch_light
+                              widgets:
+                                - label:
+                                    text: "SVĚTLO"
+                                    align: center
+                                    text_font: small_font
+                                    text_color: 0xFFFFFF
+                                    clickable: false
+
+                          # Feeder (Krmítko)
+                          - button:
+                              id: btn_feeder
+                              x: 155
+                              y: 60
+                              width: 100
+                              height: 40
+                              bg_opa: 0 # Transparent
+                              styles:
+                                - style_device_transparent
+                              on_click:
+                                - switch.toggle: switch_feeder
+                              widgets:
+                                - label:
+                                    text: "KRMÍTKO"
+                                    align: center
+                                    text_font: small_font
+                                    text_color: 0xFFFFFF
+                                    clickable: false
+
+                    # 3. PRAVÁ LIŠTA (Sidebar)
+                    - obj:
+                        width: 150
+                        height: 100%
+                        styles: style_right_panel
+                        # No layout for absolute positioning
+                        widgets:
+                          # 1. Teplota
+                          - button:
+                              id: btn_temp_sidebar
+                              x: 5
+                              y: 10
+                              width: 135
+                              height: 65
+                              bg_color: 0x334455
+                              on_click:
+                                - script.execute: update_temp_settings_ui
+                                - lambda: |-
+                                    lv_obj_clear_flag(id(overlay_temp), LV_OBJ_FLAG_HIDDEN);
+                                    lv_obj_move_foreground(id(overlay_temp));
+                              widgets:
+                                - label:
+                                    id: lbl_temp_icon
+                                    text: "\U0000E1FF" # Thermostat Icon
+                                    text_font: icon_font
+                                    text_color: 0x29B6F6
+                                    align: center
+                                    x: -45 # Left side
+                                    y: 0
+                                    clickable: false
+                                - label:
+                                    id: lbl_temp_val
+                                    text: "24.5 °C"
+                                    align: center
+                                    text_font: small_font
+                                    text_color: 0x29B6F6
+                                    x: 15 # Right side
+                                    clickable: false
+
+                          # 2. Průtok vody
+                          - button:
+                              x: 5
+                              y: 85
+                              width: 135
+                              height: 65
+                              bg_color: 0x334455
+                              on_click:
+                                - lambda: |-
+                                    lv_obj_clear_flag(id(overlay_flow), LV_OBJ_FLAG_HIDDEN);
+                                    lv_obj_move_foreground(id(overlay_flow));
+                              widgets:
+                                - label:
+                                    text: "\U0000E9E4" # Speedometer/Gauge Icon (Průtok)
+                                    text_font: icon_font
+                                    text_color: 0x29B6F6
+                                    align: center
+                                    x: -45
+                                    y: 0
+                                    clickable: false
+                                - label:
+                                    text: "1200 l/h"
+                                    align: center
+                                    text_font: small_font
+                                    text_color: 0x29B6F6
+                                    x: 15
+                                    clickable: false
+
+                          # 3. Čas krmení
+                          - button:
+                              x: 5
+                              y: 160
+                              width: 135
+                              height: 65
+                              bg_color: 0x334455
+                              on_click:
+                                - lambda: |-
+                                    lv_obj_clear_flag(id(overlay_feed), LV_OBJ_FLAG_HIDDEN);
+                                    lv_obj_move_foreground(id(overlay_feed));
+                              widgets:
+                                - label:
+                                    text: "\U0000E88C" # Hourglass Full Icon (Krmení)
+                                    text_font: icon_font
+                                    text_color: 0x29B6F6
+                                    align: center
+                                    x: -45
+                                    y: 0
+                                    clickable: false
+                                - label:
+                                    text: "18:00"
+                                    align: center
+                                    text_font: small_font
+                                    text_color: 0x29B6F6
+                                    x: 15
+                                    clickable: false
+
+                          # 4. Kvalita vody (PH)
+                          - button:
+                              x: 5
+                              y: 235
+                              width: 135
+                              height: 65
+                              bg_color: 0x334455
+                              on_click:
+                                - lambda: |-
+                                    lv_obj_clear_flag(id(overlay_ph), LV_OBJ_FLAG_HIDDEN);
+                                    lv_obj_move_foreground(id(overlay_ph));
+                              widgets:
+                                - label:
+                                    text: "\U0000E916" # Water Drop Icon (PH)
+                                    text_font: icon_font
+                                    text_color: 0x29B6F6
+                                    align: center
+                                    x: -45
+                                    y: 0
+                                    clickable: false
+                                - label:
+                                    text: "PH 7.2"
+                                    align: center
+                                    text_font: small_font
+                                    text_color: 0x29B6F6
+                                    x: 15
+                                    clickable: false
+
+                          # 5. Světlo (původně Rezerva/Nastavení)
+                          - button:
+                              x: 5
+                              y: 310
+                              width: 135
+                              height: 65
+                              bg_color: 0x334455
+                              on_click:
+                                - lambda: |-
+                                    lv_obj_clear_flag(id(overlay_settings), LV_OBJ_FLAG_HIDDEN);
+                                    lv_obj_move_foreground(id(overlay_settings));
+                              widgets:
+                                - label:
+                                    text: "\U0000E0F0" # Light Bulb Icon
+                                    text_font: icon_font
+                                    text_color: 0x29B6F6
+                                    align: center
+                                    x: -45
+                                    y: 0
+                                    clickable: false
+                                - label:
+                                    text: "SVĚTLO"
+                                    align: center
+                                    text_font: small_font
+                                    text_color: 0x29B6F6
+                                    x: 15
+                                    clickable: false
+
+        # HA Dashboard Overlay (Full Screen)
+        - obj:
+            id: ha_dashboard_overlay
+            width: 100%
+            height: 100%
+            bg_color: 0x000000
+            bg_opa: 90%
+            hidden: true
+            # touch_enabled: true - default
+            pad_all: 20
+            widgets:
+              - label:
+                  text: "Home Assistant Dashboard"
+                  align: center
+                  text_font: medium_font
+                  text_color: 0xFFFFFF
+              - button:
+                  width: 100
+                  height: 50
+                  align: bottom_mid
+                  bg_color: 0x444444
+                  on_click:
+                    - lambda: lv_obj_add_flag(id(ha_dashboard_overlay), LV_OBJ_FLAG_HIDDEN);
+                  widgets:
+                    - label:
+                        text: "Zpět"
+                        align: center
+                        text_font: medium_font
+                        text_color: 0xFFFFFF
+                        clickable: false
+
+        # --- POPUP OVERLAYS ---
+        # Common style for all popups:
+        # Width: 650 (Left panel width + padding) to not cover right panel
+        # Height: 480 (Full height)
+        # Position: x:0, y:0
+
+        # 1. Teplota Popup
+        - obj:
+            id: overlay_temp
+            x: 0
+            y: 0
+            width: 650
+            height: 480
+            bg_color: 0x223344
+            bg_opa: 100%
+            hidden: true
+            border_width: 2
+            border_color: 0x445566
+            radius: 0
+            widgets:
+              # Header
+              - label:
+                  text: "Nastavení Teploty"
+                  text_font: medium_font
+                  text_color: 0x29B6F6
+                  align: top_mid
+                  y: 10
+
+              # --- Settings Container ---
+              - obj:
+                  width: 600
+                  height: 380
+                  align: center
+                  y: 20
+                  bg_opa: 0
+                  border_width: 0
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    pad_row: 5
+                  widgets:
+                    # ROW 1: Min Alert
+                    - obj:
+                        width: 100%
+                        height: 80
+                        bg_opa: 0
+                        border_width: 0
+                        widgets:
+                          - label:
+                              text: "Limit Zčervenání (MIN)"
+                              text_font: small_font
+                              text_color: 0xFF5555 # Light Red
+                              align: top_left
+                              x: 10
+                              y: 10
+                          - button:
+                              width: 60
+                              height: 50
+                              align: right_mid
+                              x: -180
+                              bg_color: 0x445566
+                              on_click:
+                                - lambda: id(temp_min_alert) -= 0.5;
+                                - script.execute: update_temp_settings_ui
+                              widgets:
+                                - label:
+                                    text: "-"
+                                    align: center
+                                    text_font: medium_font
+                          - label:
+                              id: lbl_min_val
+                              text: "22.0 °C"
+                              text_font: medium_font
+                              text_color: 0xFFFFFF
+                              align: right_mid
+                              x: -100
+                          - button:
+                              width: 60
+                              height: 50
+                              align: right_mid
+                              x: -20
+                              bg_color: 0x445566
+                              on_click:
+                                - lambda: id(temp_min_alert) += 0.5;
+                                - script.execute: update_temp_settings_ui
+                              widgets:
+                                - label:
+                                    text: "+"
+                                    align: center
+                                    text_font: medium_font
+
+                    # ROW 2: Max Alert
+                    - obj:
+                        width: 100%
+                        height: 80
+                        bg_opa: 0
+                        border_width: 0
+                        widgets:
+                          - label:
+                              text: "Limit Zčervenání (MAX)"
+                              text_font: small_font
+                              text_color: 0xFF5555 # Light Red
+                              align: top_left
+                              x: 10
+                              y: 10
+                          - button:
+                              width: 60
+                              height: 50
+                              align: right_mid
+                              x: -180
+                              bg_color: 0x445566
+                              on_click:
+                                - lambda: id(temp_max_alert) -= 0.5;
+                                - script.execute: update_temp_settings_ui
+                              widgets:
+                                - label:
+                                    text: "-"
+                                    align: center
+                                    text_font: medium_font
+                          - label:
+                              id: lbl_max_val
+                              text: "28.0 °C"
+                              text_font: medium_font
+                              text_color: 0xFFFFFF
+                              align: right_mid
+                              x: -100
+                          - button:
+                              width: 60
+                              height: 50
+                              align: right_mid
+                              x: -20
+                              bg_color: 0x445566
+                              on_click:
+                                - lambda: id(temp_max_alert) += 0.5;
+                                - script.execute: update_temp_settings_ui
+                              widgets:
+                                - label:
+                                    text: "+"
+                                    align: center
+                                    text_font: medium_font
+
+                    # ROW 3: Target Day
+                    - obj:
+                        width: 100%
+                        height: 80
+                        bg_opa: 0
+                        border_width: 0
+                        widgets:
+                          - label:
+                              text: "Cílová Teplota (DEN)"
+                              text_font: small_font
+                              text_color: 0x29B6F6 # Blue
+                              align: top_left
+                              x: 10
+                              y: 10
+                          - button:
+                              width: 60
+                              height: 50
+                              align: right_mid
+                              x: -180
+                              bg_color: 0x445566
+                              on_click:
+                                - lambda: id(temp_target_day) -= 0.5;
+                                - script.execute: update_temp_settings_ui
+                              widgets:
+                                - label:
+                                    text: "-"
+                                    align: center
+                                    text_font: medium_font
+                          - label:
+                              id: lbl_target_day_val
+                              text: "25.0 °C"
+                              text_font: medium_font
+                              text_color: 0xFFFFFF
+                              align: right_mid
+                              x: -100
+                          - button:
+                              width: 60
+                              height: 50
+                              align: right_mid
+                              x: -20
+                              bg_color: 0x445566
+                              on_click:
+                                - lambda: id(temp_target_day) += 0.5;
+                                - script.execute: update_temp_settings_ui
+                              widgets:
+                                - label:
+                                    text: "+"
+                                    align: center
+                                    text_font: medium_font
+
+                    # ROW 4: Target Night
+                    - obj:
+                        width: 100%
+                        height: 80
+                        bg_opa: 0
+                        border_width: 0
+                        widgets:
+                          - label:
+                              text: "Cílová Teplota (NOC)"
+                              text_font: small_font
+                              text_color: 0x29B6F6 # Blue
+                              align: top_left
+                              x: 10
+                              y: 10
+                          - button:
+                              width: 60
+                              height: 50
+                              align: right_mid
+                              x: -180
+                              bg_color: 0x445566
+                              on_click:
+                                - lambda: id(temp_target_night) -= 0.5;
+                                - script.execute: update_temp_settings_ui
+                              widgets:
+                                - label:
+                                    text: "-"
+                                    align: center
+                                    text_font: medium_font
+                          - label:
+                              id: lbl_target_night_val
+                              text: "23.0 °C"
+                              text_font: medium_font
+                              text_color: 0xFFFFFF
+                              align: right_mid
+                              x: -100
+                          - button:
+                              width: 60
+                              height: 50
+                              align: right_mid
+                              x: -20
+                              bg_color: 0x445566
+                              on_click:
+                                - lambda: id(temp_target_night) += 0.5;
+                                - script.execute: update_temp_settings_ui
+                              widgets:
+                                - label:
+                                    text: "+"
+                                    align: center
+                                    text_font: medium_font
+
+              # Back Button
+              - button:
+                  width: 120
+                  height: 50
+                  align: bottom_right
+                  x: -20
+                  y: -20
+                  bg_color: 0x444444
+                  on_click:
+                    - lambda: lv_obj_add_flag(id(overlay_temp), LV_OBJ_FLAG_HIDDEN);
+                  widgets:
+                    - label:
+                        text: "Zpět"
+                        align: center
+                        text_font: medium_font
+                        text_color: 0xFFFFFF
+                        clickable: false
+                    - label:
+                        text: "\U0000E5C4" # Arrow Back
+                        text_font: icon_font
+                        text_color: 0xFFFFFF
+                        align: left_mid
+                        x: 10
+                        clickable: false
+
+        # 2. Průtok Popup
+        - obj:
+            id: overlay_flow
+            x: 0
+            y: 0
+            width: 650
+            height: 480
+            bg_color: 0x223344
+            bg_opa: 100%
+            hidden: true
+            border_width: 2
+            border_color: 0x445566
+            radius: 0
+            widgets:
+              - label:
+                  text: "Nastavení Průtoku"
+                  text_font: medium_font
+                  text_color: 0x29B6F6
+                  align: top_mid
+                  y: 20
+              - label:
+                  text: "\U0000E9E4"
+                  text_font: big_icon_font
+                  text_color: 0x29B6F6
+                  align: center
+                  y: -50
+              - button:
+                  width: 120
+                  height: 50
+                  align: bottom_right
+                  x: -20
+                  y: -20
+                  bg_color: 0x444444
+                  on_click:
+                    - lambda: lv_obj_add_flag(id(overlay_flow), LV_OBJ_FLAG_HIDDEN);
+                  widgets:
+                    - label:
+                        text: "Zpět"
+                        align: center
+                        text_font: medium_font
+                        text_color: 0xFFFFFF
+                        clickable: false
+                    - label:
+                        text: "\U0000E5C4"
+                        text_font: icon_font
+                        text_color: 0xFFFFFF
+                        align: left_mid
+                        x: 10
+                        clickable: false
+
+        # 3. Krmení Popup
+        - obj:
+            id: overlay_feed
+            x: 0
+            y: 0
+            width: 650
+            height: 480
+            bg_color: 0x223344
+            bg_opa: 100%
+            hidden: true
+            border_width: 2
+            border_color: 0x445566
+            radius: 0
+            widgets:
+              - label:
+                  text: "Nastavení Krmení"
+                  text_font: medium_font
+                  text_color: 0x29B6F6
+                  align: top_mid
+                  y: 20
+              - label:
+                  text: "\U0000E88C"
+                  text_font: big_icon_font
+                  text_color: 0x29B6F6
+                  align: center
+                  y: -50
+              - button:
+                  width: 120
+                  height: 50
+                  align: bottom_right
+                  x: -20
+                  y: -20
+                  bg_color: 0x444444
+                  on_click:
+                    - lambda: lv_obj_add_flag(id(overlay_feed), LV_OBJ_FLAG_HIDDEN);
+                  widgets:
+                    - label:
+                        text: "Zpět"
+                        align: center
+                        text_font: medium_font
+                        text_color: 0xFFFFFF
+                        clickable: false
+                    - label:
+                        text: "\U0000E5C4"
+                        text_font: icon_font
+                        text_color: 0xFFFFFF
+                        align: left_mid
+                        x: 10
+                        clickable: false
+
+        # 4. Kvalita (PH) Popup
+        - obj:
+            id: overlay_ph
+            x: 0
+            y: 0
+            width: 650
+            height: 480
+            bg_color: 0x223344
+            bg_opa: 100%
+            hidden: true
+            border_width: 2
+            border_color: 0x445566
+            radius: 0
+            widgets:
+              - label:
+                  text: "Kvalita Vody (PH)"
+                  text_font: medium_font
+                  text_color: 0x29B6F6
+                  align: top_mid
+                  y: 20
+              - label:
+                  text: "\U0000E916"
+                  text_font: big_icon_font
+                  text_color: 0x29B6F6
+                  align: center
+                  y: -50
+              - button:
+                  width: 120
+                  height: 50
+                  align: bottom_right
+                  x: -20
+                  y: -20
+                  bg_color: 0x444444
+                  on_click:
+                    - lambda: lv_obj_add_flag(id(overlay_ph), LV_OBJ_FLAG_HIDDEN);
+                  widgets:
+                    - label:
+                        text: "Zpět"
+                        align: center
+                        text_font: medium_font
+                        text_color: 0xFFFFFF
+                        clickable: false
+                    - label:
+                        text: "\U0000E5C4"
+                        text_font: icon_font
+                        text_color: 0xFFFFFF
+                        align: left_mid
+                        x: 10
+                        clickable: false
+
+        # 5. Nastavení Popup
+        - obj:
+            id: overlay_settings
+            x: 0
+            y: 0
+            width: 650
+            height: 480
+            bg_color: 0x223344
+            bg_opa: 100%
+            hidden: true
+            border_width: 2
+            border_color: 0x445566
+            radius: 0
+            widgets:
+              - label:
+                  text: "Obecné Nastavení"
+                  text_font: medium_font
+                  text_color: 0x29B6F6
+                  align: top_mid
+                  y: 20
+              - label:
+                  text: "\U0000E8B8"
+                  text_font: big_icon_font
+                  text_color: 0x29B6F6
+                  align: center
+                  y: -50
+              - button:
+                  width: 120
+                  height: 50
+                  align: bottom_right
+                  x: -20
+                  y: -20
+                  bg_color: 0x444444
+                  on_click:
+                    - lambda: lv_obj_add_flag(id(overlay_settings), LV_OBJ_FLAG_HIDDEN);
+                  widgets:
+                    - label:
+                        text: "Zpět"
+                        align: center
+                        text_font: medium_font
+                        text_color: 0xFFFFFF
+                        clickable: false
+                    - label:
+                        text: "\U0000E5C4"
+                        text_font: icon_font
+                        text_color: 0xFFFFFF
+                        align: left_mid
+                        x: 10
+                        clickable: false
