@@ -1,8 +1,8 @@
 substitutions:
   name: "aquarium-controler"
   friendly_name: "Akvárium Kontroler"
-  wifi_ssid: "elernetik"
-  wifi_password: "64030625346403062534"
+  wifi_ssid: "ssidname"
+  wifi_password: "passwordheslo"
 
 esphome:
   name: ${name}
